@@ -1,15 +1,16 @@
 # dsh-irc
 
-An IRC chat bridge for **DeepSeek Harness (DSH)** Web GUI, consisting of two parts:
+> **⚠️ 中文单语言界面** — This software uses a **single Chinese-language interface only**. All UI labels, help text, and system prompts are in Chinese. English is used only in this README for documentation.
+>
+> **⚠️ Chinese-only UI** — 本软件为**中文单语言界面**。所有 UI 标签、帮助文本和系统提示均为中文；英文仅用于本 README 文档。
+
+An IRC chat bridge for **DeepSeek Harness (DSH)** Web GUI, consisting of three parts:
 
 1. **`irc-bot/`** — Standalone Node.js IRC bot (real TCP connection, LLM replies, MCP tool calls, supervisor auto-restart)
 2. **`plugin/`** — DSH Cordis plugin (injects an IRC floating panel into the Web GUI, interoperates with the bot)
+3. **`autoload/`** — **dsh-autoload** framework: a generic DSH dynamic-plugin autoloader that auto-registers the IRC panel at DSH startup (no manual `run` after restart). The IRC panel is the framework's first example component.
 
 The panel and bot communicate via an **outbox queue** (`outbox.ndjson`): panel input → write to queue → bot reads every 500ms and sends to channel.
-
-> **Note:** This software uses a single Chinese-language interface only. All UI labels, help text, and system prompts are in Chinese.
->
-> **注意：**本软件为中文单语言界面。所有 UI 标签、帮助文本和系统提示均为中文。
 
 ---
 
@@ -22,10 +23,14 @@ dsh-irc/
 │   ├── irc-bot.js            # Bot main program (Node net real TCP)
 │   ├── run.sh                # Supervisor: ensures bot always runs, auto-restart on crash
 │   └── irc.json              # Config: server / nick / channel / LLM / reply policy
-├── plugin/                   # DSH Cordis plugin
+├── plugin/                   # DSH Cordis plugin (first autoload component)
 │   ├── host.js               # Host side: 8 RPC handlers
 │   ├── client.js             # Client side: IRC floating panel UI
 │   └── plugin.json           # Plugin metadata
+├── autoload/                 # dsh-autoload framework (generic, reusable)
+│   ├── index.js              # Auto-loader plugin (standard Cordis host)
+│   ├── package.json          # @dsh-mod/dsh-autoload
+│   └── README.md             # Framework docs + how to add components
 ├── docs/                     # Design and troubleshooting docs
 │   ├── irc-chat-tools-bridge.md
 │   ├── irc-cordis-plugin.md
@@ -36,11 +41,83 @@ dsh-irc/
 
 ---
 
-## Quick Start
+## Prerequisites
 
-### 1. Configure the bot
+- **DeepSeek Harness (DSH)** Web profile running (`dsh --profile web`)
+- **Node.js** ≥ 18 (for the bot)
+- An **IRC server** to connect to
+- An **OpenAI-compatible LLM endpoint** (e.g. local LiteLLM proxy) for bot replies
 
-Edit `irc-bot/irc.json`:
+---
+
+## Installation
+
+### 1. Install the IRC bot
+
+The bot is a standalone Node.js program. No build step is needed.
+
+```bash
+cd irc-bot
+npm install   # if any dependencies are declared; otherwise skip
+```
+
+### 2. Configure the bot
+
+Edit `irc-bot/irc.json` — see [Configuration](#configuration) below.
+
+### 3. Start the bot (supervisor auto-restart)
+
+```bash
+cd irc-bot
+./run.sh &          # Background supervisor; bot crashes auto-restart
+```
+
+Or run in foreground for debugging: `node irc-bot.js`
+
+### 4. Install the DSH panel (auto-load)
+
+The panel is a **dynamic Cordis plugin** auto-registered by the `autoload/` framework at DSH startup.
+
+1. Add the framework as a local dependency in the profile's `package.json`:
+
+   ```json
+   {
+     "dependencies": {
+       "@dsh-mod/dsh-autoload": "file:../../../src/dsh-irc/autoload"
+     }
+   }
+   ```
+
+2. Run `npm install` in the profile directory.
+
+3. Register the IRC component in the profile's `cordis.patch.yml`:
+
+   ```yaml
+   - insert:
+       - id: dsh-autoload
+         name: '@dsh-mod/dsh-autoload'
+         inject: ['dynamicCordisRunner']
+         config:
+           components:
+             - id: irc
+               name: 'IRC Chat Panel'
+               purpose: '...'
+               idPrefix: 'irct'
+               hostFile: '/home/lucloner/src/dsh-irc/plugin/host.js'
+               clientFile: '/home/lucloner/src/dsh-irc/plugin/client.js'
+   ```
+
+4. Restart DSH: `systemctl --user restart dsh-web.service`
+
+5. **Refresh the browser** — the **IRC** button appears at the sidebar bottom automatically.
+
+> The `autoload/` framework is generic and reusable. See [`autoload/README.md`](autoload/README.md) for how to add more components.
+
+---
+
+## Configuration
+
+### `irc-bot/irc.json`
 
 ```json
 {
@@ -69,25 +146,30 @@ Edit `irc-bot/irc.json`:
 ```
 
 Key fields:
-- **server** — IRC server address, port, TLS enabled/disabled
-- **llm.base** — OpenAI-compatible LLM endpoint (local LiteLLM proxy)
-- **llm.keyFile** — Credentials file containing `LITELLM_API_KEY: sk-...`
-- **llm.model** — Fallback model (bot follows DSH session's latest used model by default, see below)
-- **reply** — Reply policy: cooldown, burst limit, ignored bot nicks
 
-### 2. Start the bot (supervisor auto-restart)
+| Field | Description |
+|-------|-------------|
+| `server` | IRC server address, port, TLS enabled/disabled |
+| `nick` / `user` | Bot identity on the IRC network |
+| `channel` | Channel to join (e.g. `#xia`) |
+| `llm.base` | OpenAI-compatible LLM endpoint (local LiteLLM proxy) |
+| `llm.keyFile` | Credentials file containing `LITELLM_API_KEY: sk-...` |
+| `llm.model` | Fallback model (bot follows DSH session's latest used model by default, see below) |
+| `reply` | Reply policy: cooldown, burst limit, ignored bot nicks |
+| `logDir` | Where `conversation.ndjson` + `status.json` are written |
 
-```bash
-cd irc-bot
-./run.sh &          # Background supervisor; bot crashes auto-restart
-```
+### Panel path constants (`plugin/host.js`)
 
-Or run in foreground for debugging: `node irc-bot.js`
+The Cordis dynamic Host runtime has **no** `process`/`require`/`os`/`path`, cannot read environment variables,
+so plugin paths are **hardcoded**. Edit the three constants at the top of `plugin/host.js` when publishing or porting:
 
-### 3. Install DSH plugin
+| Constant | Default | Description |
+|----------|---------|-------------|
+| `LOG` | `/home/lucloner/.dsh/irc-bot` | Session log directory |
+| `BOT_DIR` | `/raid/source/src/shell/irc-bot` | Bot source directory |
+| `LLM_CONFIG` | `/etc/litellm/config.yaml` | LiteLLM model config |
 
-Load `plugin/host.js` + `plugin/client.js` as a Cordis plugin (`irct-4`) in DSH,
-or run `./install.sh`. After installation, refresh the browser — an **IRC** button appears at the sidebar bottom.
+The bot-side `run.sh` supports overriding the log directory via `IRC_BOT_LOG_DIR`; `BOT_DIR` auto-detects from script location.
 
 ---
 
@@ -152,21 +234,6 @@ If the model returns a context overflow error (`Request exceeds model context wi
 
 ---
 
-## Path Configuration
-
-The Cordis dynamic Host runtime has **no** `process`/`require`/`os`/`path`, cannot read environment variables,
-so plugin paths are **hardcoded**. Edit the three constants at the top of `plugin/host.js` when publishing or porting:
-
-| Constant | Default | Description |
-|----------|---------|-------------|
-| `LOG` | `/home/lucloner/.dsh/irc-bot` | Session log directory |
-| `BOT_DIR` | `/raid/source/src/shell/irc-bot` | Bot source directory |
-| `LLM_CONFIG` | `/etc/litellm/config.yaml` | LiteLLM model config |
-
-The bot-side `run.sh` supports overriding the log directory via `IRC_BOT_LOG_DIR`; `BOT_DIR` auto-detects from script location.
-
----
-
 ## Troubleshooting
 
 - **Panel messages not sending**: Ensure outbox write uses `danger-full-access` (Cordis fs default
@@ -181,16 +248,17 @@ More details in `docs/`.
 
 # dsh-irc（中文说明）
 
-一个把 IRC 聊天接入 **DeepSeek Harness (DSH)** Web GUI 的完整方案，包含两部分：
+> **⚠️ 中文单语言界面** — 本软件为**中文单语言界面**。所有 UI 标签、帮助文本和系统提示均为中文；英文仅用于本 README 文档。
+>
+> **⚠️ Chinese-only UI** — This software uses a **single Chinese-language interface only**. All UI labels, help text, and system prompts are in Chinese. English is used only in this README for documentation.
+
+一个把 IRC 聊天接入 **DeepSeek Harness (DSH)** Web GUI 的完整方案，包含三部分：
 
 1. **`irc-bot/`** — 独立的 Node.js IRC bot（真实 TCP 连接、LLM 回复、MCP 工具调用、supervisor 自动重启）
 2. **`plugin/`** — DSH Cordis 插件（在 Web GUI 注入 IRC 浮动面板，与 bot 联动）
+3. **`autoload/`** — **dsh-autoload** 框架：通用 DSH 动态插件自动加载器，DSH 启动时自动注册 IRC 面板（重启后免手动 run）。IRC 面板是本框架的第一个示例组件。
 
 面板与 bot 通过 **outbox 队列**（`outbox.ndjson`）通信：面板输入 → 写入队列 → bot 每 500ms 读取并发送到频道。
-
-> **注意：**本软件为中文单语言界面。所有 UI 标签、帮助文本和系统提示均为中文。
->
-> **Note:** This software uses a single Chinese-language interface only. All UI labels, help text, and system prompts are in Chinese.
 
 ---
 
@@ -203,10 +271,14 @@ dsh-irc/
 │   ├── irc-bot.js            # bot 主程序（Node net 真实 TCP）
 │   ├── run.sh                # supervisor：确保 bot 始终运行，退出自动重启
 │   └── irc.json              # 配置：服务器 / nick / 频道 / LLM / 回复策略
-├── plugin/                   # DSH Cordis 插件
+├── plugin/                   # DSH Cordis 插件（第一个 autoload 组件）
 │   ├── host.js               # Host 端：8 个 RPC handler
 │   ├── client.js             # Client 端：IRC 浮动面板 UI
 │   └── plugin.json           # 插件元数据
+├── autoload/                 # dsh-autoload 框架（通用、可复用）
+│   ├── index.js              # 自动加载器插件（标准 Cordis host）
+│   ├── package.json          # @dsh-mod/dsh-autoload
+│   └── README.md             # 框架文档 + 如何添加组件
 ├── docs/                     # 设计与排障文档
 │   ├── irc-chat-tools-bridge.md
 │   ├── irc-cordis-plugin.md
@@ -217,11 +289,83 @@ dsh-irc/
 
 ---
 
-## 快速开始
+## 前置要求
 
-### 1. 配置 bot
+- **DeepSeek Harness (DSH)** Web profile 运行中（`dsh --profile web`）
+- **Node.js** ≥ 18（用于 bot）
+- 一个可连接的 **IRC 服务器**
+- 一个 **OpenAI 兼容的 LLM 端点**（如本地 LiteLLM proxy）用于 bot 回复
 
-编辑 `irc-bot/irc.json`：
+---
+
+## 安装指南
+
+### 1. 安装 IRC bot
+
+bot 是独立的 Node.js 程序，无需构建。
+
+```bash
+cd irc-bot
+npm install   # 若声明了依赖则执行；否则跳过
+```
+
+### 2. 配置 bot
+
+编辑 `irc-bot/irc.json` — 见下方 [配置指南](#配置指南)。
+
+### 3. 启动 bot（supervisor 自动重启）
+
+```bash
+cd irc-bot
+./run.sh &          # 后台 supervisor，bot 崩溃自动重启
+```
+
+或直接前台运行调试：`node irc-bot.js`
+
+### 4. 安装 DSH 面板（自动加载）
+
+面板是**动态 Cordis 插件**，由 `autoload/` 框架在 DSH 启动时自动注册。
+
+1. 在 profile 的 `package.json` 里把框架加为本地依赖：
+
+   ```json
+   {
+     "dependencies": {
+       "@dsh-mod/dsh-autoload": "file:../../../src/dsh-irc/autoload"
+     }
+   }
+   ```
+
+2. 在 profile 目录运行 `npm install`。
+
+3. 在 profile 的 `cordis.patch.yml` 里注册 IRC 组件：
+
+   ```yaml
+   - insert:
+       - id: dsh-autoload
+         name: '@dsh-mod/dsh-autoload'
+         inject: ['dynamicCordisRunner']
+         config:
+           components:
+             - id: irc
+               name: 'IRC Chat Panel'
+               purpose: '...'
+               idPrefix: 'irct'
+               hostFile: '/home/lucloner/src/dsh-irc/plugin/host.js'
+               clientFile: '/home/lucloner/src/dsh-irc/plugin/client.js'
+   ```
+
+4. 重启 DSH：`systemctl --user restart dsh-web.service`
+
+5. **刷新浏览器** — 侧边栏底部自动出现 **IRC** 按钮。
+
+> `autoload/` 框架是通用、可复用的。如何添加更多组件见 [`autoload/README.md`](autoload/README.md)。
+
+---
+
+## 配置指南
+
+### `irc-bot/irc.json`
 
 ```json
 {
@@ -250,25 +394,30 @@ dsh-irc/
 ```
 
 关键字段：
-- **server** — IRC 服务器地址、端口、是否 TLS
-- **llm.base** — OpenAI 兼容的 LLM 端点（本地 LiteLLM proxy）
-- **llm.keyFile** — 含 `LITELLM_API_KEY: sk-...` 的凭证文件
-- **llm.model** — 回退模型（bot 优先跟随 DSH 会话最新使用的模型，见下）
-- **reply** — 回复策略：冷却、爆发上限、忽略的 bot nick
 
-### 2. 启动 bot（supervisor 自动重启）
+| 字段 | 说明 |
+|------|------|
+| `server` | IRC 服务器地址、端口、是否 TLS |
+| `nick` / `user` | bot 在 IRC 网络上的身份 |
+| `channel` | 要加入的频道（如 `#xia`） |
+| `llm.base` | OpenAI 兼容的 LLM 端点（本地 LiteLLM proxy） |
+| `llm.keyFile` | 含 `LITELLM_API_KEY: sk-...` 的凭证文件 |
+| `llm.model` | 回退模型（bot 优先跟随 DSH 会话最新使用的模型，见下） |
+| `reply` | 回复策略：冷却、爆发上限、忽略的 bot nick |
+| `logDir` | `conversation.ndjson` + `status.json` 的写入目录 |
 
-```bash
-cd irc-bot
-./run.sh &          # 后台 supervisor，bot 崩溃自动重启
-```
+### 面板路径常量（`plugin/host.js`）
 
-或直接前台运行调试：`node irc-bot.js`
+Cordis 动态 Host 运行时**没有** `process`/`require`/`os`/`path`，无法读取环境变量，
+因此插件路径为**硬编码**，发布/移植时请直接编辑 `plugin/host.js` 顶部的三个常量：
 
-### 3. 安装 DSH 插件
+| 常量 | 默认 | 说明 |
+|------|------|------|
+| `LOG` | `/home/lucloner/.dsh/irc-bot` | 会话日志目录 |
+| `BOT_DIR` | `/raid/source/src/shell/irc-bot` | bot 源码目录 |
+| `LLM_CONFIG` | `/etc/litellm/config.yaml` | LiteLLM 模型配置 |
 
-在 DSH 中把 `plugin/host.js` + `plugin/client.js` 加载为 Cordis 插件（`irct-4`），
-或运行 `./install.sh` 参考安装。安装后刷新浏览器，侧边栏底部出现 **IRC** 按钮。
+bot 侧 `run.sh` 支持 `IRC_BOT_LOG_DIR` 覆盖日志目录，`BOT_DIR` 自动取脚本所在目录。
 
 ---
 
@@ -333,21 +482,6 @@ bot 默认不固定模型，而是扫描 DSH 会话存储（`~/.dsh/sessions/**/
 
 若模型返回上下文超限错误（`Request exceeds model context window`），bot 自动重试一次
 不带 tools；只有上下文错误才永久记入该模型的 no-tools 列表。
-
----
-
-## 路径配置
-
-Cordis 动态 Host 运行时**没有** `process`/`require`/`os`/`path`，无法读取环境变量，
-因此插件路径为**硬编码**，发布/移植时请直接编辑 `plugin/host.js` 顶部的三个常量：
-
-| 常量 | 默认 | 说明 |
-|------|------|------|
-| `LOG` | `/home/lucloner/.dsh/irc-bot` | 会话日志目录 |
-| `BOT_DIR` | `/raid/source/src/shell/irc-bot` | bot 源码目录 |
-| `LLM_CONFIG` | `/etc/litellm/config.yaml` | LiteLLM 模型配置 |
-
-bot 侧 `run.sh` 支持 `IRC_BOT_LOG_DIR` 覆盖日志目录，`BOT_DIR` 自动取脚本所在目录。
 
 ---
 

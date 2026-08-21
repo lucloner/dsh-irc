@@ -1,0 +1,8 @@
+{
+  "name": "@dsh-mod/dsh-autoload",
+  "version": "1.0.0",
+  "type": "commonjs",
+  "main": "index.js",
+  "description": "Generic DSH dynamic-plugin autoloader framework: auto-registers host/client plugin components at DSH startup via dynamicCordisRunner.",
+  "license": "MIT"
+}
