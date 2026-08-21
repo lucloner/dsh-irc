@@ -1,0 +1,25 @@
+{
+  "name": "IRC Chat Panel",
+  "description": "DeepSeek Harness (DSH) Cordis 插件：在 DSH Web GUI 注入 IRC 聊天浮动面板，与独立 IRC bot (irc-bot/) 联动。面板支持命令输入、模型切换、工具调用、技能浏览，并把面板消息经 outbox 队列发送到 IRC 频道。",
+  "pluginId": "irct-4",
+  "version": "1.0.0",
+  "platform": "cordis",
+  "inject": ["fs", "slots", "timer"],
+  "host": "host.js",
+  "client": "client.js",
+  "handlers": [
+    "get-irc-messages",
+    "get-irc-status",
+    "irc-send",
+    "irc-control",
+    "get-irc-models",
+    "execute-tool",
+    "get-skill",
+    "list-skills"
+  ],
+  "env": {
+    "DSH_IRC_LOG_DIR": "会话日志目录（默认 ~/.dsh/irc-bot）",
+    "DSH_IRC_BOT_DIR": "bot 源码目录（默认 ../irc-bot）",
+    "DSH_IRC_LLM_CONFIG": "LiteLLM 模型配置文件（默认 /etc/litellm/config.yaml）"
+  }
+}

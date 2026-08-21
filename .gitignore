@@ -1,0 +1,16 @@
+# Runtime / generated
+outbox.ndjson
+*.log
+bot-stdout.log
+bot-supervisor.log
+
+# Credentials / secrets
+.credentials.yaml
+*.key
+*.crt
+*.pem
+.env
+
+# Editor / OS
+.DS_Store
+*.swp

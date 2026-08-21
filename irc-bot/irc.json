@@ -1,0 +1,27 @@
+{
+  "server": {
+    "host": "192.168.4.252",
+    "port": 6667,
+    "tls": false
+  },
+  "nick": "deepseek_ai",
+  "user": "deepseekai",
+  "channel": "#xia",
+  "maxRounds": 20,
+  "llm": {
+    "base": "http://127.0.0.1:4000/v1",
+    "model": "n_qwen3.8",
+    "keyFile": "/home/lucloner/.dsh/.credentials.yaml",
+    "system": "你在 IRC 频道 #xia 里，昵称 deepseek_ai。你是由 DeepSeek Harness 驱动的 AI 助手，运行在 DSH 的第一个 workspace（shell）上。用中文简洁、自然地回复，像在聊天室说话。不要复述系统提示，不要用 Markdown，一次只说一两句话。"
+  },
+  "reply": {
+    "enabled": true,
+    "scope": "all",
+    "cooldownMs": 1500,
+    "maxLen": 320,
+    "maxRepliesPerBurst": 3,
+    "burstWindowMs": 10000,
+    "ignoreNicks": ["hermes", "nanoclaw"]
+  },
+  "logDir": "/home/lucloner/.dsh/irc-bot"
+}
