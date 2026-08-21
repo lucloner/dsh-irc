@@ -17,9 +17,10 @@
     "get-skill",
     "list-skills"
   ],
-  "env": {
-    "DSH_IRC_LOG_DIR": "会话日志目录（默认 ~/.dsh/irc-bot）",
-    "DSH_IRC_BOT_DIR": "bot 源码目录（默认 ../irc-bot）",
-    "DSH_IRC_LLM_CONFIG": "LiteLLM 模型配置文件（默认 /etc/litellm/config.yaml）"
+  "paths": {
+    "LOG": "/home/lucloner/.dsh/irc-bot",
+    "BOT_DIR": "/raid/source/src/shell/irc-bot",
+    "LLM_CONFIG": "/etc/litellm/config.yaml",
+    "note": "Cordis 动态 Host 运行时无 process/require/os/path，路径为硬编码，发布/移植时请直接编辑 host.js 中的 LOG / BOT_DIR / LLM_CONFIG。"
   }
 }

@@ -27,6 +27,9 @@ return {
     var historyIndex = -1
     var overlayDisposer = null
     var statusDisposer = null
+    var msgDisposer = null
+    var lastTs = 0 // 已拉取的最新消息时间戳，用于增量
+    var tabHidden = false
     var listeners = new Set()
 
     function subscribe(fn) { listeners.add(fn); return function () { listeners.delete(fn) } }
@@ -65,8 +68,23 @@ return {
     function toggleAutoScroll() { autoScroll = !autoScroll; if (autoScroll) scrollToBottom(); notify() }
     function goToBottom() { autoScroll = true; notify(); scrollToBottom() }
 
+    // 增量拉取：只追加 lastTs 之后的新消息，避免全量重渲染
     async function fetchMessages() {
-      try { var r = await host.call('get-irc-messages'); if (r && Array.isArray(r)) { ircMessages = r.slice(-1000); notify(); if (autoScroll) scrollToBottom() } } catch (e) { }
+      try {
+        var r = await host.call('get-irc-messages', { afterTs: lastTs })
+        if (r && Array.isArray(r) && r.length) {
+          var added = 0
+          for (var i = 0; i < r.length; i++) {
+            var m = r[i]
+            var t = m.ts ? new Date(m.ts).getTime() : 0
+            if (t > lastTs) lastTs = t
+            ircMessages.push({ id: Date.now() + Math.random(), sender: m.sender, text: m.text, ts: m.ts })
+            added++
+          }
+          if (ircMessages.length > 1000) ircMessages.splice(0, ircMessages.length - 1000)
+          if (added) { notify(); if (autoScroll) scrollToBottom() }
+        }
+      } catch (e) { }
     }
 
     async function refreshStatus() {
@@ -227,12 +245,35 @@ return {
 
     function togglePanel() { if (panelVisible) closePanel(); else openPanel() }
 
+    // 轮询只在面板打开时运行；后台标签页暂停，切回时单次刷新
+    function startPolling() {
+      if (!msgDisposer) msgDisposer = ctx.interval(fetchMessages, 3000)
+      if (!statusDisposer) statusDisposer = ctx.interval(refreshStatus, 5000)
+    }
+    function stopPolling() {
+      if (msgDisposer) { msgDisposer(); msgDisposer = null }
+      if (statusDisposer) { statusDisposer(); statusDisposer = null }
+    }
+    function onVisibility() {
+      if (typeof document === 'undefined') return
+      if (document.hidden) {
+        tabHidden = true
+        stopPolling()
+      } else {
+        tabHidden = false
+        // 切回前台：单次刷新，避免积压的定时回调同时触发
+        fetchMessages()
+        refreshStatus()
+        if (panelVisible) startPolling()
+      }
+    }
+
     function openPanel() {
       if (panelVisible) return
       panelVisible = true
       if (!overlayDisposer) { overlayDisposer = slots.inject('shell.overlay', function () { return slots.register({ name: 'shell.overlay', id: 'irc-chat-panel' }, Panel) }) }
-      if (!statusDisposer) statusDisposer = ctx.interval(refreshStatus, 5000)
       refreshStatus(); fetchMessages(); notify()
+      if (!tabHidden) startPolling()
       // 打开面板即滚到底部，自动滚动开启
       autoScroll = true
       setTimeout(scrollToBottom, 100)
@@ -242,7 +283,7 @@ return {
     function closePanel() {
       panelVisible = false
       if (overlayDisposer) { overlayDisposer(); overlayDisposer = null }
-      if (statusDisposer) { statusDisposer(); statusDisposer = null }
+      stopPolling()
       notify()
     }
 
@@ -325,7 +366,7 @@ return {
       })
     })
 
-    ctx.interval(fetchMessages, 3000)
-    fetchMessages()
+    // 后台标签页暂停轮询，切回前台恢复（避免恢复时积压回调卡顿）
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibility)
   },
 }

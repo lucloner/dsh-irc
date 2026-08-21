@@ -151,15 +151,16 @@ bot 默认不固定模型，而是扫描 DSH 会话存储（`~/.dsh/sessions/**/
 
 ---
 
-## 环境变量（插件可移植性）
+## 路径配置
 
-插件路径默认硬编码，可用环境变量覆盖：
+Cordis 动态 Host 运行时**没有** `process`/`require`/`os`/`path`，无法读取环境变量，
+因此插件路径为**硬编码**，发布/移植时请直接编辑 `plugin/host.js` 顶部的三个常量：
 
-| 变量 | 默认 | 说明 |
+| 常量 | 默认 | 说明 |
 |------|------|------|
-| `DSH_IRC_LOG_DIR` | `~/.dsh/irc-bot` | 会话日志目录 |
-| `DSH_IRC_BOT_DIR` | `../irc-bot` | bot 源码目录 |
-| `DSH_IRC_LLM_CONFIG` | `/etc/litellm/config.yaml` | LiteLLM 模型配置 |
+| `LOG` | `/home/lucloner/.dsh/irc-bot` | 会话日志目录 |
+| `BOT_DIR` | `/raid/source/src/shell/irc-bot` | bot 源码目录 |
+| `LLM_CONFIG` | `/etc/litellm/config.yaml` | LiteLLM 模型配置 |
 
 bot 侧 `run.sh` 支持 `IRC_BOT_LOG_DIR` 覆盖日志目录，`BOT_DIR` 自动取脚本所在目录。
 

@@ -13,12 +13,8 @@
  *   get-skill         读取技能说明
  *   list-skills       列出可用技能
  *
- * 路径可通过环境变量覆盖（便于发布/移植）：
- *   DSH_IRC_LOG_DIR   会话日志目录（默认 ~/.dsh/irc-bot）
- *   DSH_IRC_BOT_DIR   bot 源码目录（默认 ./irc-bot，相对于插件运行目录）
- *   DSH_IRC_LLM_CONFIG LiteLLM 模型配置文件（默认 /etc/litellm/config.yaml）
- *
- * 用法：作为 Cordis 插件 host 端源码，配合 client.js 一起加载。
+ * ⚠️ 路径为硬编码：Cordis 动态 Host 运行时没有 process/require/os/path，
+ * 无法读取环境变量。发布/移植时请直接编辑下面的 LOG / BOT_DIR / LLM_CONFIG。
  */
 return {
   inject: ['fs'],
@@ -26,12 +22,9 @@ return {
     const fs = ctx.fs
     if (!fs) return
 
-    const os = require('os')
-    const path = require('path')
-
-    const LOG = process.env.DSH_IRC_LOG_DIR || path.join(os.homedir(), '.dsh', 'irc-bot')
-    const BOT_DIR = process.env.DSH_IRC_BOT_DIR || path.join(__dirname, '..', 'irc-bot')
-    const LLM_CONFIG = process.env.DSH_IRC_LLM_CONFIG || '/etc/litellm/config.yaml'
+    const LOG = '/home/lucloner/.dsh/irc-bot'
+    const BOT_DIR = '/raid/source/src/shell/irc-bot'
+    const LLM_CONFIG = '/etc/litellm/config.yaml'
 
     async function readJsonFile(p) {
       try { const t = await fs.resolve(p); return JSON.parse(await fs.readText(t)) } catch (e) { return null }
@@ -40,8 +33,10 @@ return {
       try { const t = await fs.resolve(p); await fs.writeText(t, JSON.stringify(d, null, 2)) } catch (e) { /* ignore */ }
     }
 
-    // 读取 IRC 会话记录，返回最近 1000 条消息
-    harness.handle('get-irc-messages', async () => {
+    // 读取 IRC 会话记录。支持增量：传 afterTs 只返回该时间戳之后的新消息，
+    // 避免客户端每次全量重渲染。不传时返回最近 1000 条。
+    harness.handle('get-irc-messages', async (args) => {
+      const afterTs = args && args.afterTs ? Number(args.afterTs) : 0
       try {
         const target = await fs.resolve(LOG + '/conversation.ndjson')
         const content = await fs.readText(target)
@@ -50,9 +45,11 @@ return {
         for (let i = 0; i < lines.length; i++) {
           try {
             const p = JSON.parse(lines[i])
-            if (p.ev === 'recv') msgs.push({ id: Date.now(), sender: p.from || 'unknown', text: p.text || '', ts: p.ts })
-            else if (p.ev === 'send') msgs.push({ id: Date.now(), sender: 'deepseek_ai', text: p.text || '', ts: p.ts })
-            else if (p.ev === 'tool') msgs.push({ id: Date.now(), sender: 'Tool', text: (p.name || '') + ' (' + JSON.stringify(p.args) + ') -> ' + String(p.result).substring(0, 500), ts: p.ts })
+            const t = p.ts ? new Date(p.ts).getTime() : 0
+            if (afterTs && t <= afterTs) continue
+            if (p.ev === 'recv') msgs.push({ sender: p.from || 'unknown', text: p.text || '', ts: p.ts })
+            else if (p.ev === 'send') msgs.push({ sender: 'deepseek_ai', text: p.text || '', ts: p.ts })
+            else if (p.ev === 'tool') msgs.push({ sender: 'Tool', text: (p.name || '') + ' (' + JSON.stringify(p.args) + ') -> ' + String(p.result).substring(0, 500), ts: p.ts })
           } catch (e) { /* skip bad line */ }
         }
         return msgs.slice(-1000)
