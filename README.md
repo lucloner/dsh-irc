@@ -43,16 +43,30 @@ dsh-irc/
 
 ## Prerequisites
 
-- **DeepSeek Harness (DSH)** Web profile running (`dsh --profile web`)
-- **Node.js** ≥ 18 (for the bot)
-- An **IRC server** to connect to
-- An **OpenAI-compatible LLM endpoint** (e.g. local LiteLLM proxy) for bot replies
+- **Node.js** ≥ 18
+- A configured **IRC server** and **OpenAI-compatible LLM endpoint** (e.g. local LiteLLM proxy)
 
 ---
 
 ## Installation
 
-### 1. Install the IRC bot
+### Install DeepSeek Harness
+
+```bash
+npm install -g @deepseek-ai/dsh
+```
+
+After installing, create a profile directory (e.g. `~/.dsh/profiles/web/`). The Web GUI runs via:
+
+```bash
+dsh --profile web
+# or on systemd-managed setups:
+systemctl --user start dsh-web.service
+```
+
+### Install the IRC bot and panel
+
+#### 1. Install the IRC bot
 
 The bot is a standalone Node.js program. No build step is needed.
 
@@ -61,11 +75,11 @@ cd irc-bot
 npm install   # if any dependencies are declared; otherwise skip
 ```
 
-### 2. Configure the bot
+#### 2. Configure the bot
 
 Edit `irc-bot/irc.json` — see [Configuration](#configuration) below.
 
-### 3. Start the bot (supervisor auto-restart)
+#### 3. Start the bot (supervisor auto-restart)
 
 ```bash
 cd irc-bot
@@ -74,7 +88,7 @@ cd irc-bot
 
 Or run in foreground for debugging: `node irc-bot.js`
 
-### 4. Install the DSH panel (auto-load)
+#### 4. Install the DSH panel (auto-load)
 
 The panel is a **dynamic Cordis plugin** auto-registered by the `autoload/` framework at DSH startup.
 
@@ -83,7 +97,7 @@ The panel is a **dynamic Cordis plugin** auto-registered by the `autoload/` fram
    ```json
    {
      "dependencies": {
-       "@dsh-mod/dsh-autoload": "file:../../../src/dsh-irc/autoload"
+       "@dsh-mod/dsh-autoload": "file:/home/lucloner/src/dsh-irc/autoload"
      }
    }
    ```
@@ -107,9 +121,11 @@ The panel is a **dynamic Cordis plugin** auto-registered by the `autoload/` fram
                clientFile: '/home/lucloner/src/dsh-irc/plugin/client.js'
    ```
 
-4. Restart DSH: `systemctl --user restart dsh-web.service`
+4. Restart DSH: `systemctl --user restart dsh-web.service` (or `dsh --profile web`)
 
 5. **Refresh the browser** — the **IRC** button appears at the sidebar bottom automatically.
+
+> ⚠️ Paths in this guide are user-specific (`/home/lucloner/src/dsh-irc/autoload`, `/home/lucloner/src/dsh-irc/plugin/host.js` etc.). Replace them with your actual paths, or use absolute `file:` paths instead of relative ones for clarity.
 
 > The `autoload/` framework is generic and reusable. See [`autoload/README.md`](autoload/README.md) for how to add more components.
 
@@ -291,16 +307,30 @@ dsh-irc/
 
 ## 前置要求
 
-- **DeepSeek Harness (DSH)** Web profile 运行中（`dsh --profile web`）
-- **Node.js** ≥ 18（用于 bot）
-- 一个可连接的 **IRC 服务器**
-- 一个 **OpenAI 兼容的 LLM 端点**（如本地 LiteLLM proxy）用于 bot 回复
+- **Node.js** ≥ 18
+- 一个可连接的 **IRC 服务器**和一个 **OpenAI 兼容的 LLM 端点**（如本地 LiteLLM proxy）
 
 ---
 
 ## 安装指南
 
-### 1. 安装 IRC bot
+### 安装 DeepSeek Harness
+
+```bash
+npm install -g @deepseek-ai/dsh
+```
+
+安装后创建 profile 目录（例如 `~/.dsh/profiles/web/`）。Web GUI 启动方式：
+
+```bash
+dsh --profile web
+# 或 systemd 管理：
+systemctl --user start dsh-web.service
+```
+
+### 安装 IRC bot 和面板
+
+#### 1. 安装 IRC bot
 
 bot 是独立的 Node.js 程序，无需构建。
 
@@ -309,11 +339,11 @@ cd irc-bot
 npm install   # 若声明了依赖则执行；否则跳过
 ```
 
-### 2. 配置 bot
+#### 2. 配置 bot
 
 编辑 `irc-bot/irc.json` — 见下方 [配置指南](#配置指南)。
 
-### 3. 启动 bot（supervisor 自动重启）
+#### 3. 启动 bot（supervisor 自动重启）
 
 ```bash
 cd irc-bot
@@ -322,7 +352,7 @@ cd irc-bot
 
 或直接前台运行调试：`node irc-bot.js`
 
-### 4. 安装 DSH 面板（自动加载）
+#### 4. 安装 DSH 面板（自动加载）
 
 面板是**动态 Cordis 插件**，由 `autoload/` 框架在 DSH 启动时自动注册。
 
@@ -331,7 +361,7 @@ cd irc-bot
    ```json
    {
      "dependencies": {
-       "@dsh-mod/dsh-autoload": "file:../../../src/dsh-irc/autoload"
+       "@dsh-mod/dsh-autoload": "file:/home/lucloner/src/dsh-irc/autoload"
      }
    }
    ```
@@ -355,9 +385,11 @@ cd irc-bot
                clientFile: '/home/lucloner/src/dsh-irc/plugin/client.js'
    ```
 
-4. 重启 DSH：`systemctl --user restart dsh-web.service`
+4. 重启 DSH：`systemctl --user restart dsh-web.service`（或 `dsh --profile web`）
 
 5. **刷新浏览器** — 侧边栏底部自动出现 **IRC** 按钮。
+
+> ⚠️ 本指南中的路径为示例路径（如 `/home/lucloner/src/dsh-irc/autoload`、`/home/lucloner/src/dsh-irc/plugin/host.js`），请替换为你自己的实际路径，或使用绝对 `file:` 路径而非相对路径。
 
 > `autoload/` 框架是通用、可复用的。如何添加更多组件见 [`autoload/README.md`](autoload/README.md)。
 
