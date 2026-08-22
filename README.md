@@ -52,6 +52,8 @@ dsh-irc/
 
 ### Install DeepSeek Harness
 
+**Option 1: Global install (recommended)**
+
 ```bash
 npm install -g @deepseek-ai/dsh
 ```
@@ -63,6 +65,15 @@ dsh --profile web
 # or on systemd-managed setups:
 systemctl --user start dsh-web.service
 ```
+
+**Option 2: npx (convenient for quick starts)**
+
+```bash
+cd ~/.dsh/profiles/web
+npx @deepseek-ai/dsh@0.1.1-rc.2 --profile web
+```
+
+> ⚠️ `npx` downloads the package on each run and may hang briefly on first launch (resolving transitive dependencies). Global install is recommended for production use because the workspace's `node_modules/` chain provides all dependencies locally.
 
 ### Install the IRC bot and panel
 
@@ -316,6 +327,8 @@ dsh-irc/
 
 ### 安装 DeepSeek Harness
 
+**方式一：全局安装（推荐）**
+
 ```bash
 npm install -g @deepseek-ai/dsh
 ```
@@ -327,6 +340,15 @@ dsh --profile web
 # 或 systemd 管理：
 systemctl --user start dsh-web.service
 ```
+
+**方式二：npx 启动（适合快速体验）**
+
+```bash
+cd ~/.dsh/profiles/web
+npx @deepseek-ai/dsh@0.1.1-rc.2 --profile web
+```
+
+> ⚠️ `npx` 每次运行都会下载包，首次启动可能短暂卡住（解析传递依赖）。生产环境推荐使用全局安装，因为 workspace 的 `node_modules/` 链已提供所有本地依赖。
 
 ### 安装 IRC bot 和面板
 
