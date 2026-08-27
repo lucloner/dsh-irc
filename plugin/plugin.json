@@ -1,6 +1,6 @@
 {
   "name": "IRC Chat Panel",
-  "description": "DeepSeek Harness (DSH) Cordis 插件：在 DSH Web GUI 注入 IRC 聊天浮动面板，与独立 IRC bot (irc-bot/) 联动。面板支持命令输入、模型切换、工具调用、技能浏览，并把面板消息经 outbox 队列发送到 IRC 频道。",
+  "description": "DeepSeek Harness (DSH) Cordis 插件：在 DSH Web GUI 注入 IRC 聊天浮动面板，与薄 IRC 传输 (irc-bot/) 联动。IRC 对话经 DSH 核心：插件创建/恢复专用 agent (irc-xia)，轮询 inbox 转发消息，轮询 agent.session 提取回复写入 outbox。DSH 的系统提示、预设、守卫、钩子、上下文、压缩、工具全部生效。面板支持命令输入、模型切换、工具调用、技能浏览。",
   "pluginId": "irct-4",
   "version": "1.0.0",
   "platform": "cordis",

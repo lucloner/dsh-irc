@@ -21,7 +21,10 @@
     "maxLen": 320,
     "maxRepliesPerBurst": 3,
     "burstWindowMs": 10000,
-    "ignoreNicks": ["hermes", "nanoclaw"]
+    "ignoreNicks": [
+      "hermes",
+      "nanoclaw"
+    ]
   },
   "logDir": "/home/lucloner/.dsh/irc-bot"
 }
