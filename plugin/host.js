@@ -69,7 +69,8 @@ return {
     let lastProcessedSeq = 0
     let processedMsgIds = new Set() // 已处理的 assistant/message id 去重（防重启重发 + 防重复转发）
     let sentInboxTs = new Set() // 已发送给 agent 的入站消息 ts 去重，防同一消息被 followup 多次
-    let pendingText = ''          // agent 忙时累积的待发送消息
+    let pendingText = ''          // 达到阈值的待发送消息（仅含已满足 rate-limit 的 sender）
+    let waitingBuffers = {}       // 未达阈值的 sender 消息暂存：sender -> text
     let lastFollowupTime = 0      // 上次 followup 时间戳，防多 interval 快速重复发送（500ms 窗口）
     let polling = false           // 防止并发轮询
 
@@ -246,7 +247,9 @@ return {
           const accumulated = senderAccumulated[sender] || 0
           const required = senderRequired[sender] || 1
           if (accumulated >= required) {
-            readyBatch += senderBuffers[sender]
+            // 合并之前暂存的消息 + 本次新消息
+            readyBatch += (waitingBuffers[sender] || '') + senderBuffers[sender]
+            delete waitingBuffers[sender]
             // 下一轮需要 required + accumulated 条（实际累积数）
             senderRequired[sender] = required + accumulated
             sentSenders.push(sender)
@@ -254,14 +257,13 @@ return {
             senderAccumulated[sender] = 0
             logError('rate-limit: sender=' + sender + ' accumulated=' + accumulated + ' required_was=' + required + ' next_required=' + senderRequired[sender])
           } else {
-            // 未达阈值，累积到 pendingText 供下次 poll
-            pendingText += senderBuffers[sender]
-            if (pendingText.length > MAX_INPUT) pendingText = pendingText.slice(-MAX_INPUT)
+            // 未达阈值，暂存到 waitingBuffers（不会与其他 sender 的达标消息一起发送）
+            waitingBuffers[sender] = (waitingBuffers[sender] || '') + senderBuffers[sender]
             logError('rate-limit: sender=' + sender + ' accumulated=' + accumulated + ' needed=' + required + ' (waiting)')
           }
         }
 
-        // 追加到 pending（agent 忙时也累积），保留最后 50k
+        // 仅达标消息进入 pendingText（未达标消息在 waitingBuffers 中等待）
         if (readyBatch.trim()) {
             pendingText += readyBatch
             if (pendingText.length > MAX_INPUT) pendingText = pendingText.slice(-MAX_INPUT)

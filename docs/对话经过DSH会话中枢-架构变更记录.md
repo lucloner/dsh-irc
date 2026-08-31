@@ -678,21 +678,22 @@ function isAgentIdle() {
 - 每个 sender 初始需要 1 条消息即发送
 - 每次发送后，阈值 = 原阈值 + 本次实际累积数
 - 5 分钟无该 sender 发言 → 重置为 1 条即发送
-- 未达阈值的消息累积到 pendingText
+- 未达阈值的消息暂存到 `waitingBuffers[sender]`（per-sender 隔离），达标时合并发送
 
 **实现**：
 - `senderRequired[sender]`：每个 sender 的发送阈值
 - `senderAccumulated[sender]`：该 sender 自上次发送以来的累积消息数
 - `senderLastSendTime[sender]`：该 sender 上次发送时间（用于冷却判断）
-- `COOLDOWN_MS = 300000`（5 分钟）
+- `waitingBuffers[sender]`：未达标 sender 的消息暂存，确保不被其他 sender 的达标消息触发发送
+
+**隔离设计**：不同 sender 之间互不干扰。A 达标时只合并 A 自己的 waitingBuffers + A 本次新消息；B 即使也在 poll 中但未达标，其消息留在 waitingBuffers[B] 等待 B 下次达标。
 
 **示例流程**：
 ```
-A 发1条 → required=1, 1≥1 → 发送 → next_required=2
-A 发1条 → accumulated=1, required=2, 1<2 → 等待
-A 发2条 → accumulated=3, required=2, 3≥2 → 发送 → next_required=5
-A 发4条 → accumulated=4, required=5, 4<5 → 等待
-A 发1条 → accumulated=5, required=5, 5≥5 → 发送 → next_required=10
+A 发1条 → required=1, accumulated=1≥1 → 发送 → next_required=2
+A 发1条 → accumulated=1, required=2, 1<2 → waitingBuffers['A']='msg2'
+B 发1条 → required=1, accumulated=1≥1 → B's msg sent（与 A 无关）
+A 发2条 → accumulated=3, required=2, 3≥2 → readyBatch=waitingBuffers[A]+新消息 → 发送 → next_required=5
 ...5分钟不发言...
 A 发1条 → required重置为1, 1≥1 → 发送
 ```
