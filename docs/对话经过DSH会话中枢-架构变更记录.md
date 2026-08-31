@@ -710,3 +710,23 @@ A 再发1条 → required重置为1(不释放waitingBuffers), accumulated=1≥1 
 - 15秒注册超时强制重连
 - 指数退避重连（5s→10s→20s→40s→60s）
 - `writeStatus()` 添加 `registered` 字段（之前缺失导致 status.json 始终显示 registered=false）
+
+### 8.12 锁过期故障：DSH 不出声（2026-08-31）
+
+**现象**：IRC 频道 #xia 有大量消息（用户与第三方 bot nanoclaw 对话），但 DSH 驱动的 `deepseek_ai` 完全不回复；`irc-xia` 会话视图为空（只有 session-start 注入的人设 system-reminder，无实际聊天内容）。
+
+**排查**：
+- `irc-bot.js` 代码审查确认已是纯传输层（`onMessage` 只写 inbox，`drainOutbox` 只读 outbox），无自回复逻辑——"频道里的回复"来自第三方 bot `nanoclaw`，与本 bot 无关。
+- DSH 进程运行正常，但插件日志反复出现 `interval skipped due to lock`；锁文件时间戳已超过 3600s 超时。
+- `/home/lucloner/.dsh/sessions/irc-xia/` 不存在 → 插件从未成功创建会话。
+
+**根因**：插件的文件锁是"加载时一次性检查"。DSH 重启后 autoload 重载插件，`apply()` 检查锁文件发现时间戳仍在 3600s 内（旧实例退出前刷新过），跳过 interval 创建，**之后不再重查**。持锁实例已死亡但锁未过期 → 新实例永久停止轮询 → inbox 积压（36 行）→ `agent.followup()` 永不触发 → 无 `assistant/message` 事件。
+
+**修复**：`rm plugin.lock` + 重启 DSH。新实例获取锁（`lock acquired at 07:52:15Z`），积压 inbox 被消费清空，rate-limiting（accumulated=31 → next_required=32）与冷却重置（was 32 → 1）均验证正常。
+
+**遗留观察点**：
+1. `resume failed: cannot prepare session "irc-xia" while it is live` —— 重启后 resume 与旧 live 会话冲突，走 fallback 路径，功能未受影响但值得跟进。
+2. 锁应改为 interval 内定期重查归属，而非仅加载时检查一次。
+3. 第三方 bot（nanoclaw）的回复也写入 inbox，会被 DSH 当作用户消息处理，可考虑过滤。
+
+详细记录见 `docs/修复重复回复-行动计划.md` §4、`docs/IRC-Bot修复计划-DSH核心驱动.md`。
