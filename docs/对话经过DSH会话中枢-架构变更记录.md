@@ -670,14 +670,14 @@ function isAgentIdle() {
 
 **最终状态**：所有问题已修复。单条消息 → 一条 IRC 回复，行为稳定。
 
-### 8.10 IRC 发言累积限速（2026-08-31）
+### 8.10 IRC 发言累积限速（2026-08-31，冷却行为修正）
 
 **需求**：防止 AI 在聊天室持续不断发言，同时允许用户粘贴多行数据。
 
 **规则**：
-- 每个 sender 初始需要 1 条消息即发送
+- 每个 sender 初始需要 **1 条消息**即发送
 - 每次发送后，阈值 = 原阈值 + 本次实际累积数
-- 5 分钟无该 sender 发言 → 重置为 1 条即发送
+- 5 分钟无该 sender 发言 → **仅重置 required=1，不释放 waitingBuffers 和 accumulated**
 - 未达阈值的消息暂存到 `waitingBuffers[sender]`（per-sender 隔离），达标时合并发送
 
 **实现**：
@@ -695,8 +695,10 @@ A 发1条 → accumulated=1, required=2, 1<2 → waitingBuffers['A']='msg2'
 B 发1条 → required=1, accumulated=1≥1 → B's msg sent（与 A 无关）
 A 发2条 → accumulated=3, required=2, 3≥2 → readyBatch=waitingBuffers[A]+新消息 → 发送 → next_required=5
 ...5分钟不发言...
-A 发1条 → required重置为1, 1≥1 → 发送
+A 再发1条 → required重置为1(不释放waitingBuffers), accumulated=1≥1 → 合并发送旧暂存+新消息 → next_required=2
 ```
+
+**冷却行为修正（2026-08-31）**：之前版本在冷却时删除 waitingBuffers 并追加到 pendingText，但此时 senderAccumulated 也为 0，本轮无新消息则循环不执行 → waitingBuffers 永远丢失。修正为冷却只 reset required=1，保留 accumulated 和 waitingBuffers，等新消息来触发合并发送。
 
 ### 8.11 sentTexts 去重移除 + IRC bot keepalive（2026-08-31）
 
