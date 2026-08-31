@@ -669,3 +669,41 @@ function isAgentIdle() {
 | V12重复稳定测试 | +1 | +1 | ✅ PASS |
 
 **最终状态**：所有问题已修复。单条消息 → 一条 IRC 回复，行为稳定。
+
+### 8.10 IRC 发言累积限速（2026-08-31）
+
+**需求**：防止 AI 在聊天室持续不断发言，同时允许用户粘贴多行数据。
+
+**规则**：
+- 每个 sender 初始需要 1 条消息即发送
+- 每次发送后，阈值 = 原阈值 + 本次实际累积数
+- 5 分钟无该 sender 发言 → 重置为 1 条即发送
+- 未达阈值的消息累积到 pendingText
+
+**实现**：
+- `senderRequired[sender]`：每个 sender 的发送阈值
+- `senderAccumulated[sender]`：该 sender 自上次发送以来的累积消息数
+- `senderLastSendTime[sender]`：该 sender 上次发送时间（用于冷却判断）
+- `COOLDOWN_MS = 300000`（5 分钟）
+
+**示例流程**：
+```
+A 发1条 → required=1, 1≥1 → 发送 → next_required=2
+A 发1条 → accumulated=1, required=2, 1<2 → 等待
+A 发2条 → accumulated=3, required=2, 3≥2 → 发送 → next_required=5
+A 发4条 → accumulated=4, required=5, 4<5 → 等待
+A 发1条 → accumulated=5, required=5, 5≥5 → 发送 → next_required=10
+...5分钟不发言...
+A 发1条 → required重置为1, 1≥1 → 发送
+```
+
+### 8.11 sentTexts 去重移除 + IRC bot keepalive（2026-08-31）
+
+**sentTexts 问题**：`sentTexts` Set 按文本内容去重，导致 agent 对不同消息生成相同回复时被跳过。移除后仅依赖 `processedMsgIds`（消息 ID 去重）。
+
+**IRC bot keepalive**：
+- 3分钟 PING keepalive 防止空闲断线
+- 433 nick 冲突自动切换备用昵称
+- 15秒注册超时强制重连
+- 指数退避重连（5s→10s→20s→40s→60s）
+- `writeStatus()` 添加 `registered` 字段（之前缺失导致 status.json 始终显示 registered=false）
