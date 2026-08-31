@@ -68,11 +68,17 @@ return {
     let ircAgent = null
     let lastProcessedSeq = 0
     let processedMsgIds = new Set() // 已处理的 assistant/message id 去重（防重启重发 + 防重复转发）
-    let sentTexts = new Set()   // 已发送的回复文本去重，防重复 pollInbox 对同一快照重复处理
     let sentInboxTs = new Set() // 已发送给 agent 的入站消息 ts 去重，防同一消息被 followup 多次
     let pendingText = ''          // agent 忙时累积的待发送消息
     let lastFollowupTime = 0      // 上次 followup 时间戳，防多 interval 快速重复发送（500ms 窗口）
     let polling = false           // 防止并发轮询
+
+    // === IRC rate-limiting: per-sender accumulation + cooldown reset ===
+    const COOLDOWN_MS = 300000     // 5 分钟不发言 → 重置该 sender 的 required 为 1
+    let senderRequired = {}        // sender -> messages needed before sending (初始为 1)
+    let senderAccumulated = {}     // sender -> total accumulated messages since last send
+    let senderLastSendTime = {}    // sender -> last followup timestamp for cooldown tracking
+
 
     // Agent 空闲检测：用 session events 判断而非 ircAgent.status（status 可能在 turn/end 后仍为 'running'）
     function isAgentIdle() {
@@ -128,14 +134,12 @@ return {
         t = t.trim()
         if (!t) continue
 
-        // 去重：已发送过的文本跳过（防止多轮 pollInbox 对同一快照重复处理）
-        if (sentTexts.has(t)) continue
-        sentTexts.add(t)
-        newTexts.push(t)
+          newTexts.push(t)
       }
 
-      // 一次性追加所有新回复到 outbox
+      // 一次性追加所有新回复到 outbox（processedMsgIds 已确保消息 ID 唯一，无需 sentTexts）
       if (newTexts.length > 0) {
+        logError('processNewReplies: writing ' + newTexts.length + ' texts to outbox')
         appendOutboxBatch(newTexts)
       }
 
@@ -206,23 +210,60 @@ return {
           await fs.writeText(target, '', undefined, undefined, { mode: 'danger-full-access', workspaceRoot: '/' })
         } catch (e) { logError('inbox read/clear: ' + e.message) }
 
-        // 合并所有新消息为一段文本（inbox 读后即清空，无需按时间戳去重）
-        let batch = ''
+        // 合并所有新消息为一段文本，按 sender 分组累积
+        // Rate-limiting: 每个 sender 需要 accumulated >= required 才发送
+        // required 初始为 1，每次发送后 +count（实际发送的条数）；5 分钟不发言 → 重置为 1
+        const senderBuffers = {}  // sender -> accumulated text this poll
         for (const line of lines) {
           let rec
           try { rec = JSON.parse(line) } catch (e) { continue }
           if (!rec || !rec.text) continue
-          // 按 ts 去重：同一入站消息（同 ts）只 followup 一次，防止重复处理
           const tsKey = rec.ts || (rec.from + ':' + rec.text)
           if (sentInboxTs.has(tsKey)) continue
           sentInboxTs.add(tsKey)
           const sender = rec.from || 'unknown'
-          batch += sender + ': ' + rec.text + '\n'
+          // 累计该轮新消息数
+          senderAccumulated[sender] = (senderAccumulated[sender] || 0) + 1
+          if (!senderBuffers[sender]) { senderBuffers[sender] = '' }
+          senderBuffers[sender] += sender + ': ' + rec.text + '\n'
         }
 
-        // 追加到 pending（agent 忙时累积），保留最后 50k
-        if (batch.trim()) {
-            pendingText += batch
+        // 检查冷却：如果某 sender 距上次发送超过 5 分钟，重置其 required 为 1
+        for (const s of Object.keys(senderRequired)) {
+          const lastSend = senderLastSendTime[s] || 0
+          if (Date.now() - lastSend > COOLDOWN_MS && senderRequired[s] > 1) {
+            logError('cooldown reset: sender=' + s + ' was ' + senderRequired[s] + ' -> 1')
+            senderRequired[s] = 1
+            // 冷却后重置 accumulated，之前的消息也算一轮
+            senderAccumulated[s] = 0
+          }
+        }
+
+        // 检查每个 sender 是否达到发送阈值
+        const sentSenders = []   // 记录本轮已满足阈值的 sender（用于冷却时间追踪）
+        let readyBatch = ''
+        for (const sender of Object.keys(senderBuffers)) {
+          const accumulated = senderAccumulated[sender] || 0
+          const required = senderRequired[sender] || 1
+          if (accumulated >= required) {
+            readyBatch += senderBuffers[sender]
+            // 下一轮需要 required + accumulated 条（实际累积数）
+            senderRequired[sender] = required + accumulated
+            sentSenders.push(sender)
+            // 重置该 sender 的累积计数
+            senderAccumulated[sender] = 0
+            logError('rate-limit: sender=' + sender + ' accumulated=' + accumulated + ' required_was=' + required + ' next_required=' + senderRequired[sender])
+          } else {
+            // 未达阈值，累积到 pendingText 供下次 poll
+            pendingText += senderBuffers[sender]
+            if (pendingText.length > MAX_INPUT) pendingText = pendingText.slice(-MAX_INPUT)
+            logError('rate-limit: sender=' + sender + ' accumulated=' + accumulated + ' needed=' + required + ' (waiting)')
+          }
+        }
+
+        // 追加到 pending（agent 忙时也累积），保留最后 50k
+        if (readyBatch.trim()) {
+            pendingText += readyBatch
             if (pendingText.length > MAX_INPUT) pendingText = pendingText.slice(-MAX_INPUT)
         }
 
@@ -235,6 +276,16 @@ return {
                 pendingText = ''
                 lastFollowupTime = now
                 try { await ircAgent.followup(makeUserMessage(text)) } catch(e) { logError('followup failed: ' + e.message) }
+                // 记录每个 sender 的冷却时间（用于 5 分钟不发言重置）
+                for (const s of sentSenders) {
+                  senderLastSendTime[s] = now
+                }
+                // Check if events were added after followup (async response)
+                try {
+                    const evts = ircAgent.session.events || []
+                    const newMsgs = evts.filter(e => e && e.type === 'assistant/message' && !processedMsgIds.has((e.data||{}).message?.id))
+                    if (newMsgs.length > 0) logError('followup-probe: found ' + newMsgs.length + ' unprocessed msgs')
+                } catch(e2) {}
             }
         }
       } finally {
@@ -248,6 +299,7 @@ return {
         const existing = agents.get(IRC_SESSION_ID)
         if (existing) {
           ircAgent = existing
+          logError('got existing agent, status=' + String(existing.status))
         } else {
           // 优先 resume（保留历史），失败则 create；create 若因会话已存在而失败，重试 get。
           try {
