@@ -235,8 +235,7 @@ return {
           if (Date.now() - lastSend > COOLDOWN_MS && senderRequired[s] > 1) {
             logError('cooldown reset: sender=' + s + ' was ' + senderRequired[s] + ' -> 1')
             senderRequired[s] = 1
-            // 冷却后重置 accumulated，之前的消息也算一轮
-            senderAccumulated[s] = 0
+            // waitingBuffers 不释放，等新消息来触发发送
           }
         }
 
